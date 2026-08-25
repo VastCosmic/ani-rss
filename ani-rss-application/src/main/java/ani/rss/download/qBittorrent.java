@@ -83,6 +83,7 @@ public class qBittorrent implements BaseDownload {
     @Override
     public Boolean login(Boolean test, Config config) {
         String host = config.getDownloadToolHost();
+        String username = config.getDownloadToolUsername();
         String password = config.getDownloadToolPassword();
 
         if (StrUtil.isBlank(host) || StrUtil.isBlank(password)) {
@@ -90,21 +91,64 @@ public class qBittorrent implements BaseDownload {
             return false;
         }
 
-        if (!password.startsWith("qbt_")) {
-            log.warn("qBittorrent 未正确配置 ApiKey");
-            return false;
-        }
-
         try {
-            // 校验当前登录状态
-            return HttpReq.post(host + "/api/v2/app/version")
-                    .header(Header.AUTHORIZATION, "Bearer " + password)
-                    .thenFunction(HttpResponse::isOk);
+            if (isApiKey(password)) {
+                // ApiKey 授权
+                // 校验当前登录状态
+                return HttpReq.post(host + "/api/v2/app/version")
+                        .header(Header.AUTHORIZATION, "Bearer " + password)
+                        .thenFunction(HttpResponse::isOk);
+            }
+
+            // 账号密码授权, 登录后的会话由全局Cookie管理器自动携带
+            if (StrUtil.isBlank(username)) {
+                log.warn("qBittorrent 未配置完成");
+                return false;
+            }
+
+            if (!test) {
+                // 校验当前会话是否有效
+                Boolean isOk = HttpReq.post(host + "/api/v2/app/version")
+                        .thenFunction(HttpResponse::isOk);
+                if (isOk) {
+                    return true;
+                }
+            }
+
+            // 重新登录
+            // disableCookie 避免登录时带上旧的会话
+            return HttpReq.post(host + "/api/v2/auth/login")
+                    .form("username", username)
+                    .form("password", password)
+                    .disableCookie()
+                    .thenFunction(res -> {
+                        HttpReq.assertStatus(res);
+                        String body = res.body();
+                        if (StrUtil.isBlank(body)) {
+                            // 在 qb 5.2.0 后登录成功会响应空 body
+                            return true;
+                        }
+                        if ("Ok.".equalsIgnoreCase(body)) {
+                            return true;
+                        }
+                        log.error("登录 qBittorrent 失败 {}", body);
+                        return false;
+                    });
         } catch (Exception e) {
             String message = ExceptionUtils.getMessage(e);
             log.error("登录 qBittorrent 失败 {}", message);
         }
         return false;
+    }
+
+    /**
+     * 判断是否为 ApiKey 授权方式
+     *
+     * @param password 密码或 ApiKey
+     * @return 是否为 ApiKey
+     */
+    private static boolean isApiKey(String password) {
+        return StrUtil.isNotBlank(password) && password.startsWith("qbt_");
     }
 
     @Override
@@ -485,17 +529,27 @@ public class qBittorrent implements BaseDownload {
     }
 
     public static HttpRequest postApi(String path) {
-        String downloadToolHost = CONFIG.getDownloadToolHost();
-        String downloadToolPassword = CONFIG.getDownloadToolPassword();
-        return HttpReq.post(downloadToolHost + path)
-                .header(Header.AUTHORIZATION, "Bearer " + downloadToolPassword);
+        return applyAuth(HttpReq.post(CONFIG.getDownloadToolHost() + path));
     }
 
     public static HttpRequest getApi(String path) {
-        String downloadToolHost = CONFIG.getDownloadToolHost();
-        String downloadToolPassword = CONFIG.getDownloadToolPassword();
-        return HttpReq.get(downloadToolHost + path)
-                .header(Header.AUTHORIZATION, "Bearer " + downloadToolPassword);
+        return applyAuth(HttpReq.get(CONFIG.getDownloadToolHost() + path));
+    }
+
+    /**
+     * 为请求添加认证信息
+     * <p>
+     * 密码以 qbt_ 开头时使用 ApiKey 授权, 否则为账号密码授权, 会话由全局Cookie管理器自动携带
+     *
+     * @param req 请求
+     * @return HttpRequest
+     */
+    private static HttpRequest applyAuth(HttpRequest req) {
+        String password = CONFIG.getDownloadToolPassword();
+        if (isApiKey(password)) {
+            return req.header(Header.AUTHORIZATION, "Bearer " + password);
+        }
+        return req;
     }
 
 }

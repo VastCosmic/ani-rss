@@ -16,22 +16,42 @@
       <el-form-item label="地址">
         <el-input v-model.trim="props.config.downloadToolHost" placeholder="http://192.168.1.x:8080"/>
       </el-form-item>
-      <el-form-item v-if="props.config.downloadToolType === 'qBittorrent'" label="ApiKey">
-        <el-input v-model.trim="props.config.downloadToolPassword" placeholder="qbt_xxxx" show-password>
-          <template #prefix>
-            <el-icon class="el-input__icon">
-              <Key/>
-            </el-icon>
-          </template>
-        </el-input>
-        <div v-if="!props.config.downloadToolPassword.startsWith('qbt_')" class="full-width margin-top-4">
-          <el-alert show-icon type="warning" :closable="false">
-            <template #title>
-              ApiKey 未正确配置
+      <template v-if="props.config.downloadToolType === 'qBittorrent'">
+        <el-form-item label="用户名">
+          <el-input v-model.trim="props.config.downloadToolUsername"
+                    :disabled="qbApiKeyMode"
+                    placeholder="username"
+                    autocomplete="new-password">
+            <template #prefix>
+              <el-icon class="el-input__icon">
+                <User/>
+              </el-icon>
             </template>
-          </el-alert>
-        </div>
-      </el-form-item>
+          </el-input>
+          <div class="full-width margin-top-4">
+            <el-text class="mx-1" size="small">
+              {{ qbApiKeyMode ? '当前为 ApiKey 授权, 用户名不会生效' : '使用账号密码授权时必填' }}
+            </el-text>
+          </div>
+        </el-form-item>
+        <el-form-item label="密码 / ApiKey">
+          <el-input v-model.trim="props.config.downloadToolPassword"
+                    :placeholder="qbApiKeyMode ? 'qbt_xxxx' : 'password'"
+                    show-password
+                    autocomplete="new-password">
+            <template #prefix>
+              <el-icon class="el-input__icon">
+                <Key/>
+              </el-icon>
+            </template>
+          </el-input>
+          <div class="full-width margin-top-4">
+            <el-text class="mx-1" size="small">
+              填写 ApiKey(qbt_ 开头) 将使用 ApiKey 授权, 否则使用上面的账号密码授权
+            </el-text>
+          </div>
+        </el-form-item>
+      </template>
       <el-form-item v-else-if="props.config.downloadToolType === 'Aria2'" label="RPC 密钥">
         <el-input v-model.trim="props.config.downloadToolPassword" placeholder="" show-password>
           <template #prefix>
@@ -232,7 +252,7 @@
 </template>
 
 <script setup>
-import {ref} from "vue";
+import {computed, ref} from "vue";
 import {ElMessage, ElText} from "element-plus";
 import {Key, User} from "@element-plus/icons-vue";
 import qBittorrentView from "@/view/config/download/qBittorrentView.vue";
@@ -275,6 +295,7 @@ const offlineList = ref([
 ])
 
 const downloadLoginTestLoading = ref(false)
+
 const downloadLoginTest = () => {
   downloadLoginTestLoading.value = true
   http.downloadLoginTest(props.config)
@@ -293,6 +314,8 @@ let testPathTemplate = (path) => {
 let activeName = ref([])
 
 let props = defineProps(['config'])
+
+const qbApiKeyMode = computed(() => (props.config?.downloadToolPassword ?? '').startsWith('qbt_'))
 </script>
 
 <style scoped>
